@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Glass Sudoku: Maximum Impact</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@200;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-purple: #bc13fe;
+            --neon-blue: #00f2fe;
+            --shatter-red: rgba(255, 30, 30, 0.9);
+            --subgrid-line: 2px solid var(--neon-blue);
+        }
+
+        body {
+            margin: 0; height: 100vh; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            background: #02020a; font-family: 'Orbitron', sans-serif;
+            overflow: hidden; color: white; touch-action: none;
+        }
+
+        /* Screen Shake Effect */
+        .screen-shake { animation: global-shake 0.15s infinite; }
+        @keyframes global-shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            80% { transform: translate(1px, 1px) rotate(-1deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+
+        .hud { display: flex; align-items: center; gap: 30px; margin-bottom: 10px; z-index: 10; }
+        .timer-display { font-size: 1.4rem; color: var(--neon-blue); text-shadow: 0 0 10px var(--neon-blue); }
+        .hint-counter { font-size: 0.9rem; color: #ffeb3b; }
+
+        .difficulty-bar { 
+            display: flex; gap: 10px; margin-bottom: 15px; 
+            background: rgba(255,255,255,0.05); padding: 5px 15px; border-radius: 20px;
+        }
+        .diff-opt { font-size: 0.65rem; cursor: pointer; color: #555; }
+        .diff-opt.active { color: var(--neon-blue); text-shadow: 0 0 8px var(--neon-blue); }
+
+        .board-wrapper {
+            padding: 5px; background: rgba(255,255,255,0.1);
+            border-radius: 12px; width: 90vw; max-width: 400px; position: relative;
+        }
+        .grid { 
+            display: grid; grid-template-columns: repeat(9, 1fr); 
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);
+        }
+        .cell {
+            aspect-ratio: 1; background: #05050f;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; font-weight: 500; cursor: pointer;
+            border: 0.5px solid rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        /* Subgrid Borders */
+        .cell:nth-child(3n):not(:nth-child(9n)) { border-right: var(--subgrid-line); }
+        .cell:nth-child(n+19):nth-child(-n+27), 
+        .cell:nth-child(n+46):nth-child(-n+54) { border-bottom: var(--subgrid-line); }
+
+        .cell.selected { background: rgba(0, 242, 254, 0.2); outline: 1px solid var(--neon-blue); z-index: 2; }
+        .fixed { color: var(--neon-purple); text-shadow: 0 0 8px var(--neon-purple); }
+        .user { color: var(--neon-blue); }
+
+        /* Max Dispersed Cracks */
+        .shatter-overlay {
+            position: absolute; inset: 0; pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg stroke='white' stroke-width='0.8' opacity='0.8'%3E%3Cpath d='M0 0 L30 30 M100 0 L70 30 M0 100 L30 70 M100 100 L70 70 M50 0 L50 100 M0 50 L100 50 M10 40 L90 60 M40 10 L60 90'/%3E%3C/g%3E%3C/svg%3E");
+            background-size: cover; z-index: 5;
+            animation: flash-red 0.4s forwards;
+        }
+
+        @keyframes flash-red {
+            0% { background-color: var(--shatter-red); opacity: 1; }
+            100% { background-color: transparent; opacity: 0.8; }
+        }
+
+        /* Falling Shards */
+        .shard {
+            position: fixed; background: rgba(255, 255, 255, 0.95);
+            pointer-events: none; z-index: 9999;
+            box-shadow: 0 0 4px white;
+        }
+
+        .keypad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 15px; width: 85vw; max-width: 380px; }
+        .key { padding: 15px 0; background: #111; border-radius: 8px; text-align: center; border: 1px solid #333; cursor: pointer; }
+        .hint-btn { width: 85vw; max-width: 380px; margin-top: 15px; padding: 12px; background: #000; border: 1.5px solid var(--neon-blue); color: var(--neon-blue); border-radius: 8px; font-family: 'Orbitron'; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="hud">
+        <div class="timer-display" id="timer">00:00</div>
+        <div class="hint-counter" id="hintCount">HINTS: 3/3</div>
+    </div>
+
+    <div class="difficulty-bar">
+        <div class="diff-opt" onclick="setMode('easy', this)">EASY</div>
+        <div class="diff-opt active" onclick="setMode('med', this)">MEDIUM</div>
+        <div class="diff-opt" onclick="setMode('hard', this)">HARD</div>
+        <div class="diff-opt" onclick="setMode('extr', this)">EXTREME</div>
+    </div>
+
+    <div class="board-wrapper"><div class="grid" id="grid"></div></div>
+    <button class="hint-btn" onclick="getHint()">GET HINT (+30s)</button>
+
+    <div class="keypad">
+        <div class="key" onclick="press(1)">1</div><div class="key" onclick="press(2)">2</div>
+        <div class="key" onclick="press(3)">3</div><div class="key" onclick="press(4)">4</div>
+        <div class="key" onclick="press(5)">5</div><div class="key" onclick="press(6)">6</div>
+        <div class="key" onclick="press(7)">7</div><div class="key" onclick="press(8)">8</div>
+        <div class="key" onclick="press(9)">9</div><div class="key" onclick="press(0)">×</div>
+    </div>
+
+    <script>
+        let selectedIdx = null, solved = [], initial = [], difficulty = 55, seconds = 0, timerInterval, hintsLeft = 3;
+
+        function spawnParticles(cell) {
+            const rect = cell.getBoundingClientRect();
+            const startX = rect.left + rect.width / 2;
+            const startY = rect.top + rect.height / 2;
+
+            for (let i = 0; i < 15; i++) {
+                const shard = document.createElement('div');
+                shard.className = 'shard';
+                
+                // Random shard shapes
+                const size = 4 + Math.random() * 8;
+                shard.style.width = size + 'px';
+                shard.style.height = size + 'px';
+                shard.style.clipPath = `polygon(${Math.random()*100}% 0%, 100% ${Math.random()*100}%, ${Math.random()*100}% 100%, 0% ${Math.random()*100}%)`;
+                
+                shard.style.left = startX + 'px';
+                shard.style.top = startY + 'px';
+                document.body.appendChild(shard);
+
+                const angle = Math.random() * Math.PI * 2;
+                const force = 5 + Math.random() * 12;
+                let vx = Math.cos(angle) * force;
+                let vy = Math.sin(angle) * force;
+                let gravity = 0;
+                let rotation = 0;
+
+                const animate = () => {
+                    gravity += 0.7;
+                    vy += gravity;
+                    const curX = parseFloat(shard.style.left) + vx;
+                    const curY = parseFloat(shard.style.top) + vy;
+                    rotation += vx * 2;
+
+                    shard.style.left = curX + 'px';
+                    shard.style.top = curY + 'px';
+                    shard.style.transform = `rotate(${rotation}deg)`;
+                    shard.style.opacity = 1 - (gravity / 40);
+
+                    if (curY < window.innerHeight + 50 && gravity < 40) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        shard.remove();
+                    }
+                };
+                requestAnimationFrame(animate);
+            }
+        }
+
+        function press(n) {
+            if (selectedIdx === null) return;
+            const t = document.querySelectorAll('.cell')[selectedIdx];
+            if (n === 0) { if(!t.classList.contains('fixed')) t.innerText = ''; return; }
+            
+            if (n !== solved[selectedIdx]) {
+                // INTENSE FEEDBACK
+                document.body.classList.add('screen-shake');
+                const overlay = document.createElement('div');
+                overlay.className = 'shatter-overlay';
+                t.appendChild(overlay);
+                spawnParticles(t);
+                
+                setTimeout(() => {
+                    document.body.classList.remove('screen-shake');
+                    setTimeout(() => overlay.remove(), 600); // Cracks stay briefly
+                }, 200);
+            } else {
+                t.innerText = n; t.className = 'cell user selected';
+            }
+        }
+
+        // --- Standard Logic Keepers ---
+        function setMode(m, el) {
+            document.querySelectorAll('.diff-opt').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            difficulty = (m==='easy')?47 : (m==='hard')?61 : (m==='extr')?64 : 55;
+            hintsLeft = 3; document.getElementById('hintCount').innerText = `HINTS: 3/3`;
+            init();
+        }
+
+        function gen() {
+            let b = Array(81).fill(0);
+            function f(b){for(let i=0;i<81;i++)if(b[i]===0){let ns=[1,2,3,4,5,6,7,8,9].sort(()=>Math.random()-0.5);for(let n of ns)if(c(b,i,n)){b[i]=n;if(f(b))return true;b[i]=0;}return false;}return true;}
+            function c(b,idx,n){let r=Math.floor(idx/9),cl=idx%9;for(let i=0;i<9;i++)if(b[r*9+i]===n||b[i*9+cl]===n)return false;let br=Math.floor(r/3)*3,bc=Math.floor(cl/3)*3;for(let i=0;i<3;i++)for(let j=0;j<3;j++)if(b[(br+i)*9+(bc+j)]===n)return false;return true;}
+            f(b); solved=[...b]; let p=[...b], a = difficulty; 
+            while(a > 0){let i=Math.floor(Math.random()*81); if(p[i]!==0){p[i]=0; a--;}} return p;
+        }
+
+        function init() {
+            let board = gen(); initial = [...board];
+            const g = document.getElementById('grid'); g.innerHTML = '';
+            board.forEach((v, i) => {
+                const c = document.createElement('div');
+                c.className = 'cell' + (v !== 0 ? ' fixed' : '');
+                c.innerText = v !== 0 ? v : '';
+                c.onclick = () => {
+                    document.querySelectorAll('.cell').forEach(x => x.classList.remove('selected'));
+                    if (initial[i] === 0) { selectedIdx = i; c.classList.add('selected'); }
+                };
+                g.appendChild(c);
+            });
+            clearInterval(timerInterval); seconds = 0;
+            timerInterval = setInterval(() => { seconds++; 
+                document.getElementById('timer').innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
+            }, 1000);
+        }
+
+        function getHint() {
+            if (selectedIdx === null || hintsLeft <= 0) return;
+            const t = document.querySelectorAll('.cell')[selectedIdx];
+            if (t.innerText !== "") return;
+            hintsLeft--; seconds += 30;
+            document.getElementById('hintCount').innerText = `HINTS: ${hintsLeft}/3`;
+            t.innerText = solved[selectedIdx];
+            t.classList.add('user');
+        }
+        init();
+    </script>
+</body>
+</html>
